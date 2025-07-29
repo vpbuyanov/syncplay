@@ -53,7 +53,7 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           platforms: linux/arm64
-          tags: ${{ secrets.DOCKER_USERNAME }}/learnio-backend:raspi5
+          tags: ${{ secrets.DOCKER_USERNAME }}/syncplay:latest
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
@@ -65,31 +65,5 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           platforms: linux/arm64
-          tags: ${{ secrets.DOCKER_USERNAME }}/learnio-backend:raspi5
+          tags: ${{ secrets.DOCKER_USERNAME }}/syncplay:latest
           push: true
-
-  deploy:
-    runs-on: self-hosted
-    if: github.event_name == 'push'
-    needs: build_and_push
-
-    steps:
-      - name: Deploy to server via SSH
-        run: |
-          echo "${{ secrets.SSH_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no -p 22 ${{ secrets.SERVER_USERNAME }}@${{ secrets.SERVER_HOST }} bash <<EOF
-          set -e
-          
-          cd learnio
-          
-          docker login -u ${{ secrets.DOCKER_USERNAME }} -p ${{ secrets.DOCKER_PASS }}
-          
-          docker stop learnio-backend learnio-worker || true
-          docker rm learnio-backend learnio-worker || true
-          docker rmi -f \$(docker images -aq) || true
-          
-          docker compose up backend worker -d
-          
-          EOF

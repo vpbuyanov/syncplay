@@ -1,0 +1,30 @@
+{
+  "get": {
+    "operationId": "GetInfo",
+    "description": "Получение версии сервиса",
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "title": "GetInfo",
+              "type": "object",
+              "required": [
+                "version"
+              ],
+              "properties": {
+                "version": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "500": {
+        "$ref": "../components.json#/components/responses/500"
+      }
+    }
+  }
+}

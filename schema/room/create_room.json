@@ -1,0 +1,30 @@
+{
+  "post": {
+    "operationId": "CreateRoom",
+    "description": "Создание комнаты",
+    "responses": {
+      "200": {
+        "description": "OK",
+        "content": {
+          "application/json": {
+            "schema": {
+              "title": "CreateRoom",
+              "type": "object",
+              "required": [
+                "url_room"
+              ],
+              "properties": {
+                "url_room": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "500": {
+        "$ref": "../components.json#/components/responses/500"
+      }
+    }
+  }
+}

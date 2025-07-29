@@ -1,0 +1,46 @@
+services:
+  postgres:
+    image: postgres:latest
+    container_name: postgres-syncplay
+    restart: unless-stopped
+    ports:
+      - "6001:5432"
+    env_file:
+      - .postgres.env
+    volumes:
+      - syncplay-postgres-data:/var/lib/postgresql/data/pgdata
+    networks:
+      syncplay:
+
+  migrator:
+    image: vpbuyanov/syncplay:latest
+    container_name: migrator-syncplay
+    restart: no
+    depends_on:
+      - postgres
+    command:
+      - . migrator
+    networks:
+      syncplay:
+
+  syncplay:
+    image: vpbuyanov/syncplay:latest
+    container_name: server-syncplay
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+    command:
+      - . server
+    volumes:
+      - syncplay-server-data:/data
+    networks:
+      syncplay:
+
+volumes:
+  syncplay-postgres-data:
+  syncplay-server-data:
+
+networks:
+  syncplay:

@@ -1,0 +1,81 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "Общие типы для сервиса SyncPlay",
+    "version": "0.0.1"
+  },
+  "paths": {},
+  "components": {
+    "schemas": {
+      "error_response": {
+        "type": "object",
+        "description": "Ответ с информацией об ошибке",
+        "properties": {
+          "detail": {
+            "type": "string",
+            "description": "Информация об ошибке"
+          }
+        },
+        "required": ["detail"]
+      },
+      "signal_message": {
+        "type": "object",
+        "description": "WS‑сообщение сигналинга (SDP или ICE)",
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "Тип сигнала",
+            "enum": ["offer", "answer", "ice"]
+          },
+          "payload": {
+            "type": "object",
+            "description": "SDP‑дескриптор или ICE‑кандидат в виде произвольного JSON"
+          }
+        },
+        "required": ["type", "payload"]
+      }
+    },
+    "responses": {
+      "400": {
+        "description": "BadRequest",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/error_response" }
+          }
+        }
+      },
+      "401": {
+        "description": "Unauthorized",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/error_response" }
+          }
+        }
+      },
+      "403": {
+        "description": "Forbidden",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/error_response" }
+          }
+        }
+      },
+      "404": {
+        "description": "NotFound",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/error_response" }
+          }
+        }
+      },
+      "500": {
+        "description": "Internal Server Error",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/error_response" }
+          }
+        }
+      }
+    }
+  }
+}

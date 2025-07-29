@@ -1,0 +1,35 @@
+{
+  "get": {
+    "description": "Установление WebSocket‑соединения для сигналинга в комнате",
+    "operationId": "ConnectRoomWS",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "UUID комнаты",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    ],
+    "responses": {
+      "101": {
+        "description": "Switching Protocols — WebSocket соединение установлено"
+      },
+      "400": {
+        "$ref": "../components.json#/components/responses/400"
+      },
+      "500": {
+        "$ref": "../components.json#/components/responses/500"
+      }
+    },
+    "x-websocket-messages": [
+      {
+        "$ref": "../components.json#/components/schemas/signal_message"
+      }
+    ]
+  }
+}
+

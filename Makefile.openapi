@@ -1,0 +1,43 @@
+# JAR-файл Swagger Codegen CLI (положите его в корень проекта)
+SWAGGER := swagger-codegen-cli.jar
+
+# Путь к спецификации и артефактам
+SCHEMA       := schema/syncplay.json
+MERGED_SPEC  := schema/merged.json
+GEN_DIR      := internal/gen
+GEN_FILE     := $(GEN_DIR)/syncplay.gen.go
+
+.PHONY: gen merge code clean
+
+# Объединить OpenAPI-фрагменты
+merge:
+	@echo "➔ Сливаем OpenAPI spec для 'syncplay'…"
+	@java -jar $(SWAGGER) generate \
+	  -l openapi \
+	  -i $(SCHEMA) \
+	  -o schema \
+	  -DoutputFile=$(notdir $(MERGED_SPEC))
+	@echo "✔ merged spec: $(MERGED_SPEC)"
+
+# Сгенерировать Go‑код
+code:
+	@echo "➔ Генерируем Go‑код…"
+	@mkdir -p $(GEN_DIR)
+	@oapi-codegen \
+	  --package=gen \
+	  --generate types,server,spec \
+	  $(MERGED_SPEC) > $(GEN_FILE)
+	@echo "✔ generated code: $(GEN_FILE)"
+
+# Удалить промежуточные файлы
+clean:
+	@echo "➔ Очищаем промежуточные файлы…"
+	@rm -rf \
+	  schema/.swagger-codegen \
+	  schema/README.md \
+	  schema/.swagger-codegen-ignore
+
+	@echo "✔ clean complete"
+
+# Полный цикл: merge → code → clean
+gen: merge code clean

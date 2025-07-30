@@ -18,8 +18,10 @@ services:
     restart: no
     depends_on:
       - postgres
+    volumes:
+      - ./config.yml:/config.yml
     command:
-      - . migrator
+      - ./migrator
     networks:
       syncplay:
 
@@ -32,9 +34,10 @@ services:
     depends_on:
       - postgres
     command:
-      - . server
+      - ./server
     volumes:
       - syncplay-server-data:/data
+      - ./config.yml:/config.yml
     networks:
       syncplay:
 

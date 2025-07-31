@@ -15,7 +15,8 @@
               ],
               "properties": {
                 "room_id": {
-                  "type": "string"
+                  "type": "string",
+                  "format": "uuid"
                 }
               }
             }

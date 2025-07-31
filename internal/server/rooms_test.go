@@ -23,11 +23,14 @@ func TestServer_CreateRoom(t *testing.T) {
 	mockModel := NewMockmodelRoom(ctrl)
 	srv := &Server{m: mockModel}
 
+	id, err := uuid.NewUUID()
+	assert.NoError(t, err)
+
 	t.Run("успешное создание", func(t *testing.T) {
 		mockModel.
 			EXPECT().
 			CreateRoom(gomock.Any()).
-			Return("room-123", nil)
+			Return(id.String(), nil)
 
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/rooms", nil)
 		rec := httptest.NewRecorder()
@@ -37,7 +40,7 @@ func TestServer_CreateRoom(t *testing.T) {
 		assert.NoError(t, err)
 
 		assert.Equal(t, http.StatusOK, rec.Code)
-		expectedBody := `{"room_id":"room-123"}`
+		expectedBody := `{"room_id": "` + id.String() + `"}`
 		assert.JSONEq(t, expectedBody, rec.Body.String())
 		assert.Equal(t, echo.MIMEApplicationJSON, rec.Header().Get(echo.HeaderContentType))
 	})

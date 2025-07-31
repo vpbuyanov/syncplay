@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	openapi_types "github.com/oapi-codegen/runtime/types"
 
@@ -20,8 +21,16 @@ func (s *Server) CreateRoom(ctx echo.Context) error {
 		})
 	}
 
+	uid := uuid.UUID{}
+	err = uid.Scan(id)
+	if err != nil {
+		return ctx.JSON(http.StatusInternalServerError, gen.ErrorResponse{
+			Detail: "can't return uuid",
+		})
+	}
+
 	res := gen.CreateRoom{
-		RoomId: id,
+		RoomId: uid,
 	}
 
 	return ctx.JSON(http.StatusOK, res)

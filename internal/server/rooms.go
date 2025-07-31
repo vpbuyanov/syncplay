@@ -21,7 +21,7 @@ func (s *Server) CreateRoom(ctx echo.Context) error {
 	}
 
 	res := gen.CreateRoom{
-		UrlRoom: "http://localhost:8080/rooms/" + id,
+		UrlRoom: s.BaseURL + "/rooms/" + id,
 	}
 
 	return ctx.JSON(http.StatusOK, res)

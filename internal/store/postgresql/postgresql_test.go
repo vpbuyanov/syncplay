@@ -126,7 +126,7 @@ func TestStorePG_DeleteRoomById(t *testing.T) {
 			wantErr: assert.Error,
 		},
 		{
-			name: "no_insert",
+			name: "no_delete",
 			id:   id.String(),
 			setup: func(m *mocker, s *StorePG, t *testRow) {
 				args := pgx.NamedArgs{
@@ -137,7 +137,7 @@ func TestStorePG_DeleteRoomById(t *testing.T) {
 					WithArgs(args).
 					WillReturnResult(pgxmock.NewResult("DELETE", 0))
 			},
-			wantErr: assert.NoError,
+			wantErr: assert.Error,
 		},
 	}
 

@@ -11,10 +11,10 @@
               "title": "CreateRoom",
               "type": "object",
               "required": [
-                "url_room"
+                "room_id"
               ],
               "properties": {
-                "url_room": {
+                "room_id": {
                   "type": "string"
                 }
               }

@@ -1,4 +1,3 @@
-// internal/server/server_test.go
 package server
 
 import (
@@ -38,7 +37,7 @@ func TestServer_CreateRoom(t *testing.T) {
 		assert.NoError(t, err)
 
 		assert.Equal(t, http.StatusOK, rec.Code)
-		expectedBody := `{"url_room":"http://localhost:8080/rooms/room-123"}`
+		expectedBody := `{"room_id":"room-123"}`
 		assert.JSONEq(t, expectedBody, rec.Body.String())
 		assert.Equal(t, echo.MIMEApplicationJSON, rec.Header().Get(echo.HeaderContentType))
 	})

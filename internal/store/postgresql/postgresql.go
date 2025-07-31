@@ -50,7 +50,7 @@ func (s *StorePG) DeleteRoomById(ctx context.Context, id string) error {
 		return errors.Wrap(err, "delete room in pg")
 	}
 
-	if !exec.Delete() {
+	if exec.RowsAffected() == 0 {
 		return errors.New("no delete room")
 	}
 

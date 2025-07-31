@@ -151,7 +151,7 @@ func TestStorePG_DeleteRoomById(t *testing.T) {
 				tt.setup(m, r, &tt)
 			}
 
-			tt.wantErr(t, r.DeleteRoomById(ctx, tt.id), "CreateRoomById() error")
+			tt.wantErr(t, r.DeleteRoomById(ctx, tt.id), "DeleteRoomById() error")
 		})
 	}
 }

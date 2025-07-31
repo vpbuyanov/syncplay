@@ -36,7 +36,7 @@ type message struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
-// ConnectRoomWS — мультипировая версия WS
+// ConnectRoomWS — мультипиринговая версия WS
 func (s *Server) ConnectRoomWS(c echo.Context, roomID openapi_types.UUID) error {
 	// 1) Upgrade
 	ws, err := upgrader.Upgrade(c.Response().Writer, c.Request(), nil)

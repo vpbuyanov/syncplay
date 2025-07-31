@@ -2,115 +2,117 @@ package server
 
 import (
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
 	openapi_types "github.com/oapi-codegen/runtime/types"
-	"github.com/pkg/errors"
-
 	"github.com/vpbuyanov/syncplay/internal/gen"
 )
 
-var (
-	upgrader = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool { return true },
+}
 
-	// одну комнату хранит набор подключений и указатель на «хоста»
-	rooms   = make(map[openapi_types.UUID]*RoomSession)
+var (
+	rooms   = make(map[openapi_types.UUID]*roomSession)
 	roomsMu sync.Mutex
 )
 
-type RoomSession struct {
-	Host    *websocket.Conn
-	Peers   map[*websocket.Conn]bool
+type roomSession struct {
+	Peers   map[string]*websocket.Conn
 	Session sync.Mutex
 }
 
-type Message struct {
-	Type    string          `json:"type"`    // "join","offer","answer","ice"
-	Payload json.RawMessage `json:"payload"` // SDP или ICE
+type message struct {
+	Type    string          `json:"type"`
+	ID      string          `json:"id,omitempty"`
+	Peers   []string        `json:"peers,omitempty"`
+	From    string          `json:"from,omitempty"`
+	To      string          `json:"to,omitempty"`
+	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
+// ConnectRoomWS — мультипировая версия WS
 func (s *Server) ConnectRoomWS(c echo.Context, roomID openapi_types.UUID) error {
-	ws, err := upgrader.Upgrade(c.Response(), c.Request(), nil)
+	// 1) Upgrade
+	ws, err := upgrader.Upgrade(c.Response().Writer, c.Request(), nil)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, gen.ErrorResponse{
-			Detail: "something wrong",
-		})
+		return c.JSON(http.StatusInternalServerError, gen.ErrorResponse{Detail: "ws upgrade failed"})
 	}
-	defer func(ws *websocket.Conn) {
-		err = ws.Close()
-		if err != nil {
-			slog.Error("Err", "err", err)
-		}
-	}(ws)
+	defer ws.Close()
 
-	// получаем или создаём RoomSession
+	// 2) Генерация peerID
+	peerID := uuid.NewString()
+
+	// 3) Получаем/создаём сессию
 	roomsMu.Lock()
-	rs, ok := rooms[roomID]
+	sess, ok := rooms[roomID]
 	if !ok {
-		rs = &RoomSession{Peers: make(map[*websocket.Conn]bool)}
-		rooms[roomID] = rs
+		sess = &roomSession{Peers: make(map[string]*websocket.Conn)}
+		rooms[roomID] = sess
 	}
 	roomsMu.Unlock()
 
-	// теперь добавляем этого ws как host или peer
-	rs.Session.Lock()
-	if rs.Host == nil {
-		rs.Host = ws
-		// можно уведомить клиента, что он host
-		if err = ws.WriteJSON(map[string]string{"type": "role", "role": "host"}); err != nil {
-			return errors.Wrap(err, "write json")
-		}
-	} else {
-		rs.Peers[ws] = true
-		if err = ws.WriteJSON(map[string]string{"type": "role", "role": "peer"}); err != nil {
-			return errors.Wrap(err, "write json")
-		}
+	// 4) Сбор существующих peer'ов
+	sess.Session.Lock()
+	existing := make([]string, 0, len(sess.Peers))
+	for id := range sess.Peers {
+		existing = append(existing, id)
 	}
-	rs.Session.Unlock()
+	sess.Peers[peerID] = ws
+	sess.Session.Unlock()
 
-	// читаем и ретранслируем сигналы
+	// 5) Приветствие нового
+	ws.WriteJSON(message{Type: "welcome", ID: peerID})
+	ws.WriteJSON(message{Type: "existing-peers", Peers: existing})
+
+	// 6) Уведомляем всех старых о new-peer
+	sess.Session.Lock()
+	for id, peerConn := range sess.Peers {
+		if id == peerID {
+			continue
+		}
+		peerConn.WriteJSON(message{Type: "new-peer", ID: peerID})
+	}
+	sess.Session.Unlock()
+
+	// 7) Чтение-сигналинг
 	for {
-		var msg Message
-		if err = ws.ReadJSON(&msg); err != nil {
+		var msg message
+		if err := ws.ReadJSON(&msg); err != nil {
 			break
 		}
-
-		rs.Session.Lock()
-		// если от host-а — отправляем всем peers
-		if ws == rs.Host {
-			for peer := range rs.Peers {
-				if err = peer.WriteJSON(msg); err != nil {
-					return errors.Wrap(err, "write json")
-				}
+		if msg.Type == "signal" && msg.To != "" {
+			sess.Session.Lock()
+			if dest, ok := sess.Peers[msg.To]; ok {
+				dest.WriteJSON(message{
+					Type:    "signal",
+					From:    peerID,
+					To:      msg.To,
+					Payload: msg.Payload,
+				})
 			}
-		} else if rs.Host != nil {
-			if err = rs.Host.WriteJSON(msg); err != nil {
-				return errors.Wrap(err, "write json")
-			}
+			sess.Session.Unlock()
 		}
-		rs.Session.Unlock()
 	}
 
-	// при выходе чистим
-	rs.Session.Lock()
-	if ws == rs.Host {
-		// host уходит — продропать комнату целиком
-		for peer := range rs.Peers {
-			if err = peer.Close(); err != nil {
-				return errors.Wrap(err, "peer close")
-			}
-		}
-		roomsMu.Lock()
+	// 8) Удаление при выходе
+	sess.Session.Lock()
+	delete(sess.Peers, peerID)
+	for _, peerConn := range sess.Peers {
+		peerConn.WriteJSON(message{Type: "peer-left", ID: peerID})
+	}
+	sess.Session.Unlock()
+
+	// 9) Если комната пуста — чистим
+	roomsMu.Lock()
+	if len(sess.Peers) == 0 {
 		delete(rooms, roomID)
-		roomsMu.Unlock()
-	} else {
-		delete(rs.Peers, ws)
 	}
-	rs.Session.Unlock()
+	roomsMu.Unlock()
 
 	return nil
 }

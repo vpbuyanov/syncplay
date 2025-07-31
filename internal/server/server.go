@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net/http"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -32,19 +33,30 @@ func NewServer(cfg config.Server, m modelRoom) (*Server, error) {
 
 	server.e.HideBanner = true
 	server.e.Pre(middleware.RemoveTrailingSlash())
-	server.e.Use(middleware.Recover())
-	server.e.Use(
-		middleware.CORS(),
-	)
-	server.e.Pre(
-		middleware.TimeoutWithConfig(
-			middleware.TimeoutConfig{
-				Timeout: cfg.TimeOut,
-			},
-		),
-	)
-
 	gen.RegisterHandlers(server.e, server)
+
+	server.e.Use(middleware.RecoverWithConfig(middleware.RecoverConfig{
+		Skipper: func(c echo.Context) bool {
+			return strings.HasPrefix(c.Path(), "/api/v1/ws/") ||
+				strings.HasPrefix(c.Path(), "/api/v2/ws/")
+		},
+	}))
+
+	server.e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+		AllowOrigins: []string{"*"},
+		Skipper: func(c echo.Context) bool {
+			return strings.HasPrefix(c.Path(), "/api/v1/ws/") ||
+				strings.HasPrefix(c.Path(), "/api/v2/ws/")
+		},
+	}))
+
+	server.e.Use(middleware.TimeoutWithConfig(middleware.TimeoutConfig{
+		Timeout: cfg.TimeOut,
+		Skipper: func(c echo.Context) bool {
+			return strings.HasPrefix(c.Path(), "/api/v1/ws/") ||
+				strings.HasPrefix(c.Path(), "/api/v2/ws/")
+		},
+	}))
 
 	server.e.Server.Addr = cfg.String()
 

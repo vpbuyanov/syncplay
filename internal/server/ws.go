@@ -9,6 +9,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
 	openapi_types "github.com/oapi-codegen/runtime/types"
+
 	"github.com/vpbuyanov/syncplay/internal/gen"
 )
 
@@ -66,8 +67,15 @@ func (s *Server) ConnectRoomWS(c echo.Context, roomID openapi_types.UUID) error 
 	sess.Session.Unlock()
 
 	// 5) Приветствие нового
-	ws.WriteJSON(message{Type: "welcome", ID: peerID})
-	ws.WriteJSON(message{Type: "existing-peers", Peers: existing})
+	if err = ws.WriteJSON(message{Type: "welcome", ID: peerID}); err != nil {
+		//nolint:wrapcheck
+		return err
+	}
+
+	if err = ws.WriteJSON(message{Type: "existing-peers", Peers: existing}); err != nil {
+		//nolint:wrapcheck
+		return err
+	}
 
 	// 6) Уведомляем всех старых о new-peer
 	sess.Session.Lock()
@@ -75,7 +83,10 @@ func (s *Server) ConnectRoomWS(c echo.Context, roomID openapi_types.UUID) error 
 		if id == peerID {
 			continue
 		}
-		peerConn.WriteJSON(message{Type: "new-peer", ID: peerID})
+		if err = peerConn.WriteJSON(message{Type: "new-peer", ID: peerID}); err != nil {
+			//nolint:wrapcheck
+			return err
+		}
 	}
 	sess.Session.Unlock()
 
@@ -88,12 +99,15 @@ func (s *Server) ConnectRoomWS(c echo.Context, roomID openapi_types.UUID) error 
 		if msg.Type == "signal" && msg.To != "" {
 			sess.Session.Lock()
 			if dest, ok := sess.Peers[msg.To]; ok {
-				dest.WriteJSON(message{
+				if err = dest.WriteJSON(message{
 					Type:    "signal",
 					From:    peerID,
 					To:      msg.To,
 					Payload: msg.Payload,
-				})
+				}); err != nil {
+					//nolint:wrapcheck
+					return err
+				}
 			}
 			sess.Session.Unlock()
 		}
@@ -103,7 +117,10 @@ func (s *Server) ConnectRoomWS(c echo.Context, roomID openapi_types.UUID) error 
 	sess.Session.Lock()
 	delete(sess.Peers, peerID)
 	for _, peerConn := range sess.Peers {
-		peerConn.WriteJSON(message{Type: "peer-left", ID: peerID})
+		if err = peerConn.WriteJSON(message{Type: "peer-left", ID: peerID}); err != nil {
+			//nolint:wrapcheck
+			return err
+		}
 	}
 	sess.Session.Unlock()
 

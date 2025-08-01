@@ -1,0 +1,76 @@
+services:
+  postgres:
+    image: postgres:latest
+    container_name: postgres-syncplay
+    restart: unless-stopped
+    ports:
+      - "6001:5432"
+    env_file:
+      - .postgres.env
+    volumes:
+      - syncplay-postgres-data:/var/lib/postgresql/data/pgdata
+    networks:
+      syncplay:
+
+  migrator:
+    image: vpbuyanov/syncplay:latest
+    container_name: migrator-syncplay
+    restart: no
+    depends_on:
+      - postgres
+    volumes:
+      - ./config.yml:/config.yml
+    command:
+      - ./migrator
+    networks:
+      syncplay:
+
+  syncplay:
+    image: vpbuyanov/syncplay:latest
+    container_name: syncplay-server
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+    command:
+      - ./server
+    volumes:
+      - syncplay-server-data:/data
+      - ./config.yml:/config.yml
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=web"
+      - "traefik.http.routers.syncplay.rule=Host(`api.syncplay.learnio.space`)"
+      - "traefik.http.routers.syncplay.entrypoints=websecure"
+      - "traefik.http.routers.syncplay.tls=true"
+      - "traefik.http.routers.syncplay.tls.certresolver=letsencrypt"
+      - "traefik.http.services.syncplay.loadbalancer.server.port=8080"
+    networks:
+      syncplay:
+      web:
+
+  syncplay-front:
+    image: vpbuyanov/syncplay-front:latest
+    container_name: syncplay-front
+    restart: unless-stopped
+    volumes:
+      - ./.env:/.env
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.video-front.rule=Host(`syncplay.learnio.space`)"
+      - "traefik.http.routers.video-front.entrypoints=websecure"
+      - "traefik.http.routers.video-front.tls=true"
+      - "traefik.http.routers.video-front.tls.certresolver=letsencrypt"
+      - "traefik.http.services.video-front.loadbalancer.server.port=80"
+    networks:
+      web:
+
+volumes:
+  syncplay-postgres-data:
+  syncplay-server-data:
+
+networks:
+  syncplay:
+  web:
+    external: true

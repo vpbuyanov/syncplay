@@ -1,0 +1,29 @@
+{
+  "delete": {
+    "operationId": "DeleteRoom",
+    "description": "Удаление комнаты",
+    "parameters": [
+      {
+        "name": "id",
+        "in": "path",
+        "description": "UUID комнаты",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    ],
+    "responses": {
+      "204": {
+        "description": "OK"
+      },
+      "404": {
+        "$ref": "../components.json#/components/responses/404"
+      },
+      "500": {
+        "$ref": "../components.json#/components/responses/500"
+      }
+    }
+  }
+}

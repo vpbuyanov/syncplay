@@ -1,0 +1,21 @@
+{
+  "openapi": "3.0.0",
+  "info": {
+    "title": "SyncPlay API",
+    "version": "0.0.1"
+  },
+  "paths": {
+    "/api/v1/info": {
+      "$ref": "./info/info.json"
+    },
+    "/api/v1/rooms": {
+      "$ref": "./room/create_room.json"
+    },
+    "/api/v1/rooms/{id}": {
+      "$ref": "./room/delete_room.json"
+    },
+    "/api/v1/ws/{id}": {
+      "$ref": "./ws/ws.json"
+    }
+  }
+}

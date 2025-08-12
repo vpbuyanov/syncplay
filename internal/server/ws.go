@@ -36,19 +36,47 @@ type message struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
-// ConnectRoomWS — мультипиринговая версия WS
+// maybeDeleteRoom безопасно удаляет комнату из глобальной карты,
+// делая двойную проверку под roomsMu -> sess.Session.
+func maybeDeleteRoom(roomID openapi_types.UUID, sess *roomSession) {
+	roomsMu.Lock()
+	defer roomsMu.Unlock()
+
+	// Комната могла быть уже удалена/заменена
+	cur := rooms[roomID]
+	if cur != sess {
+		return
+	}
+
+	sess.Session.Lock()
+	defer sess.Session.Unlock()
+
+	if len(sess.Peers) == 0 {
+		delete(rooms, roomID)
+	}
+}
+
 func (s *Server) ConnectRoomWS(c echo.Context, roomID openapi_types.UUID) error {
-	// 1) Upgrade
+	// Проверяем, что комната существует в БД до апгрейда
+	exists, err := s.m.RoomExistsUUID(c.Request().Context(), roomID)
+	if err != nil {
+		c.Logger().Errorf("RoomExistsUUID err: %v", err)
+		return c.JSON(http.StatusInternalServerError, gen.ErrorResponse{Detail: "db error"})
+	}
+	if !exists {
+		return c.JSON(http.StatusNotFound, gen.ErrorResponse{Detail: "room not found"})
+	}
+
+	// Upgrade до WebSocket
 	ws, err := upgrader.Upgrade(c.Response().Writer, c.Request(), nil)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, gen.ErrorResponse{Detail: "ws upgrade failed"})
 	}
 	defer ws.Close()
 
-	// 2) Генерация peerID
 	peerID := uuid.NewString()
 
-	// 3) Получаем/создаём сессию
+	// Получаем/создаём сессию комнаты (под глобальным локом)
 	roomsMu.Lock()
 	sess, ok := rooms[roomID]
 	if !ok {
@@ -57,79 +85,91 @@ func (s *Server) ConnectRoomWS(c echo.Context, roomID openapi_types.UUID) error 
 	}
 	roomsMu.Unlock()
 
-	// 4) Сбор существующих peer'ов
+	// Снимаем слепки существующих и получателей "new-peer"
 	sess.Session.Lock()
+
 	existing := make([]string, 0, len(sess.Peers))
 	for id := range sess.Peers {
 		existing = append(existing, id)
 	}
+
+	// Добавляем себя
 	sess.Peers[peerID] = ws
+
+	// Получатели "new-peer" (все, кроме нас)
+	recipients := make([]*websocket.Conn, 0, len(sess.Peers)-1)
+	for id, pc := range sess.Peers {
+		if id != peerID {
+			recipients = append(recipients, pc)
+		}
+	}
+
 	sess.Session.Unlock()
 
-	// 5) Приветствие нового
+	// Приветствие нового
 	if err = ws.WriteJSON(message{Type: "welcome", ID: peerID}); err != nil {
-		//nolint:wrapcheck
 		return err
 	}
-
 	if err = ws.WriteJSON(message{Type: "existing-peers", Peers: existing}); err != nil {
-		//nolint:wrapcheck
 		return err
 	}
-
-	// 6) Уведомляем всех старых о new-peer
-	sess.Session.Lock()
-	for id, peerConn := range sess.Peers {
-		if id == peerID {
-			continue
-		}
-		if err = peerConn.WriteJSON(message{Type: "new-peer", ID: peerID}); err != nil {
-			//nolint:wrapcheck
-			return err
+	for _, pc := range recipients {
+		if err = pc.WriteJSON(message{Type: "new-peer", ID: peerID}); err != nil {
+			c.Logger().Errorf("failed to send 'new-peer' (roomID=%s, newPeer=%s): %v", roomID, peerID, err)
 		}
 	}
-	sess.Session.Unlock()
 
-	// 7) Чтение-сигналинг
+	// Основной цикл сигналинга
 	for {
 		var msg message
-		if err := ws.ReadJSON(&msg); err != nil {
+		if err = ws.ReadJSON(&msg); err != nil {
 			break
 		}
-		if msg.Type == "signal" && msg.To != "" {
-			sess.Session.Lock()
-			if dest, ok := sess.Peers[msg.To]; ok {
-				if err = dest.WriteJSON(message{
-					Type:    "signal",
-					From:    peerID,
-					To:      msg.To,
-					Payload: msg.Payload,
-				}); err != nil {
-					//nolint:wrapcheck
-					return err
-				}
+		if msg.Type != "signal" || msg.To == "" {
+			continue
+		}
+
+		// Берём ссылку на получателя под локом сессии
+		var dest *websocket.Conn
+		sess.Session.Lock()
+		dest = sess.Peers[msg.To]
+		sess.Session.Unlock()
+
+		// Пишем уже без лока (ошибки логируем)
+		if dest != nil {
+			if err = dest.WriteJSON(message{
+				Type:    "signal",
+				From:    peerID,
+				To:      msg.To,
+				Payload: msg.Payload,
+			}); err != nil {
+				c.Logger().Errorf("failed to forward signal: roomID=%s from=%s to=%s: %v", roomID, peerID, msg.To, err)
+				break
 			}
-			sess.Session.Unlock()
 		}
 	}
 
-	// 8) Удаление при выходе
+	// Клиент уходит: удаляем из Peers и шлём 'peer-left' остальным
+	var leftRecipients []*websocket.Conn
 	sess.Session.Lock()
+
 	delete(sess.Peers, peerID)
-	for _, peerConn := range sess.Peers {
-		if err = peerConn.WriteJSON(message{Type: "peer-left", ID: peerID}); err != nil {
-			//nolint:wrapcheck
-			return err
-		}
+
+	leftRecipients = make([]*websocket.Conn, 0, len(sess.Peers))
+	for _, pc := range sess.Peers {
+		leftRecipients = append(leftRecipients, pc)
 	}
+
 	sess.Session.Unlock()
 
-	// 9) Если комната пуста — чистим
-	roomsMu.Lock()
-	if len(sess.Peers) == 0 {
-		delete(rooms, roomID)
+	for _, pc := range leftRecipients {
+		if err = pc.WriteJSON(message{Type: "peer-left", ID: peerID}); err != nil {
+			c.Logger().Errorf("failed to notify 'peer-left' (roomID=%s, leftPeer=%s): %v", roomID, peerID, err)
+		}
 	}
-	roomsMu.Unlock()
+
+	// Безопасная попытка удалить комнату, если она опустела
+	maybeDeleteRoom(roomID, sess)
 
 	return nil
 }

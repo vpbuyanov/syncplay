@@ -1,0 +1,221 @@
+{
+  "openapi" : "3.0.0",
+  "info" : {
+    "title" : "SyncPlay API",
+    "version" : "0.0.1"
+  },
+  "servers" : [ {
+    "url" : "/"
+  } ],
+  "paths" : {
+    "/api/v1/info" : {
+      "get" : {
+        "description" : "Получение версии сервиса",
+        "operationId" : "GetInfo",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/GetInfo"
+                }
+              }
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/error_response"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/rooms" : {
+      "post" : {
+        "description" : "Создание комнаты",
+        "operationId" : "CreateRoom",
+        "responses" : {
+          "200" : {
+            "description" : "OK",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/CreateRoom"
+                }
+              }
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/error_response"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/rooms/{id}" : {
+      "delete" : {
+        "description" : "Удаление комнаты",
+        "operationId" : "DeleteRoom",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "description" : "UUID комнаты",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "204" : {
+            "description" : "OK"
+          },
+          "404" : {
+            "description" : "NotFound",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/error_response"
+                }
+              }
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/error_response"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ws/{id}" : {
+      "get" : {
+        "description" : "Установление WebSocket‑соединения для сигналинга в комнате",
+        "operationId" : "ConnectRoomWS",
+        "parameters" : [ {
+          "name" : "id",
+          "in" : "path",
+          "description" : "UUID комнаты",
+          "required" : true,
+          "schema" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        } ],
+        "responses" : {
+          "101" : {
+            "description" : "Switching Protocols — WebSocket соединение установлено"
+          },
+          "400" : {
+            "description" : "BadRequest",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/error_response"
+                }
+              }
+            }
+          },
+          "500" : {
+            "description" : "Internal Server Error",
+            "content" : {
+              "application/json" : {
+                "schema" : {
+                  "$ref" : "#/components/schemas/error_response"
+                }
+              }
+            }
+          }
+        },
+        "x-websocket-messages" : [ {
+          "$ref" : "../components.json#/components/schemas/signal_message"
+        } ]
+      }
+    }
+  },
+  "components" : {
+    "schemas" : {
+      "error_response" : {
+        "required" : [ "detail" ],
+        "type" : "object",
+        "properties" : {
+          "detail" : {
+            "type" : "string",
+            "description" : "Информация об ошибке"
+          }
+        },
+        "description" : "Ответ с информацией об ошибке"
+      },
+      "GetInfo" : {
+        "title" : "GetInfo",
+        "required" : [ "version" ],
+        "type" : "object",
+        "properties" : {
+          "version" : {
+            "type" : "string"
+          }
+        }
+      },
+      "CreateRoom" : {
+        "title" : "CreateRoom",
+        "required" : [ "room_id" ],
+        "type" : "object",
+        "properties" : {
+          "room_id" : {
+            "type" : "string",
+            "format" : "uuid"
+          }
+        }
+      }
+    },
+    "responses" : {
+      "500" : {
+        "description" : "Internal Server Error",
+        "content" : {
+          "application/json" : {
+            "schema" : {
+              "$ref" : "#/components/schemas/error_response"
+            }
+          }
+        }
+      },
+      "404" : {
+        "description" : "NotFound",
+        "content" : {
+          "application/json" : {
+            "schema" : {
+              "$ref" : "#/components/schemas/error_response"
+            }
+          }
+        }
+      },
+      "400" : {
+        "description" : "BadRequest",
+        "content" : {
+          "application/json" : {
+            "schema" : {
+              "$ref" : "#/components/schemas/error_response"
+            }
+          }
+        }
+      }
+    }
+  }
+}

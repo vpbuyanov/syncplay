@@ -18,6 +18,7 @@ import (
 type modelRoom interface {
 	CreateRoom(ctx context.Context) (string, error)
 	DeleteRoom(ctx context.Context, id openapi_types.UUID) error
+	RoomExistsUUID(ctx context.Context, roomID openapi_types.UUID) (bool, error)
 }
 
 type Server struct {

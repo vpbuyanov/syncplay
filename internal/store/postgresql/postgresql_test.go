@@ -155,3 +155,78 @@ func TestStorePG_DeleteRoomById(t *testing.T) {
 		})
 	}
 }
+
+func TestStorePG_RoomExists(t *testing.T) {
+	ctx := context.Background()
+
+	id, err := uuid.NewUUID()
+	assert.NoError(t, err)
+
+	type testRow struct {
+		name    string
+		id      string
+		setup   func(m *mocker, s *StorePG, tr *testRow)
+		wantOK  bool
+		wantErr assert.ErrorAssertionFunc
+	}
+
+	tests := []testRow{
+		{
+			name: "exists_true",
+			id:   id.String(),
+			setup: func(m *mocker, s *StorePG, tr *testRow) {
+				args := pgx.NamedArgs{"id": tr.id}
+				rows := pgxmock.NewRows([]string{"?column?"}).AddRow(true)
+
+				m.conn.ExpectQuery(`select exists \(select \* from rooms where id = @id\)`).
+					WithArgs(args).
+					WillReturnRows(rows)
+			},
+			wantOK:  true,
+			wantErr: assert.NoError,
+		},
+		{
+			name: "exists_false",
+			id:   id.String(),
+			setup: func(m *mocker, s *StorePG, tr *testRow) {
+				args := pgx.NamedArgs{"id": tr.id}
+				rows := pgxmock.NewRows([]string{"?column?"}).AddRow(false)
+
+				m.conn.ExpectQuery(`select exists \(select \* from rooms where id = @id\)`).
+					WithArgs(args).
+					WillReturnRows(rows)
+			},
+			wantOK:  false,
+			wantErr: assert.NoError,
+		},
+		{
+			name: "pg_error",
+			id:   id.String(),
+			setup: func(m *mocker, s *StorePG, tr *testRow) {
+				args := pgx.NamedArgs{"id": tr.id}
+
+				m.conn.ExpectQuery(`select exists \(select \* from rooms where id = @id\)`).
+					WithArgs(args).
+					WillReturnError(assert.AnError)
+			},
+			wantOK:  false,
+			wantErr: assert.Error,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m, err := newMocker()
+			assert.NoError(t, err)
+
+			r := m.storePG()
+			if tt.setup != nil {
+				tt.setup(m, r, &tt)
+			}
+
+			ok, err := r.RoomExists(ctx, tt.id)
+			tt.wantErr(t, err)
+			assert.Equal(t, tt.wantOK, ok)
+		})
+	}
+}

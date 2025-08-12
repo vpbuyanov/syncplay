@@ -27,20 +27,38 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Set up go Environment
-        uses: actions/setup-go@v2
+      - uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
         with:
           go-version: 1.24
-      - uses: actions/checkout@v4
-      - name: Install Dependencies
-        run: |
-          go mod tidy
 
-      - name: Run Tests
+      - name: Show Go env (debug)
+        run: go env
+
+      - name: Install deps
+        run: go mod download
+
+      - name: Run tests via Makefile
+        run: make tests
+
+      - name: Upload coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            coverage/cover.out
+          if-no-files-found: error
+
+      - name: Enforce coverage threshold (>= 60%)
+        if: always()
         run: |
-          go test ./...
+          total=$(go tool cover -func=coverage/cover.out | tail -n1 | awk '{print $3}')
+          pct=${total%\%}
+          echo "Total coverage: $pct%"
+          awk 'BEGIN { exit ('"$pct"' < 60) ? 1 : 0 }'
 
   build:
     runs-on: ubuntu-latest

@@ -67,3 +67,18 @@ func (mr *MockmodelRoomMockRecorder) DeleteRoom(ctx, id any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteRoom", reflect.TypeOf((*MockmodelRoom)(nil).DeleteRoom), ctx, id)
 }
+
+// RoomExistsUUID mocks base method.
+func (m *MockmodelRoom) RoomExistsUUID(ctx context.Context, roomID types.UUID) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RoomExistsUUID", ctx, roomID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RoomExistsUUID indicates an expected call of RoomExistsUUID.
+func (mr *MockmodelRoomMockRecorder) RoomExistsUUID(ctx, roomID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RoomExistsUUID", reflect.TypeOf((*MockmodelRoom)(nil).RoomExistsUUID), ctx, roomID)
+}

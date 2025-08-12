@@ -92,7 +92,9 @@ func (s *Server) ConnectRoomWS(c echo.Context, roomID openapi_types.UUID) error 
 		return err
 	}
 	for _, pc := range recipients {
-		_ = pc.WriteJSON(message{Type: "new-peer", ID: peerID})
+		if err := pc.WriteJSON(message{Type: "new-peer", ID: peerID}); err != nil {
+			c.Logger().Errorf("failed to send 'new-peer' to peer: %v", err)
+		}
 	}
 
 	for {

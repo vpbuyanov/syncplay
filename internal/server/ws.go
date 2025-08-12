@@ -132,7 +132,9 @@ func (s *Server) ConnectRoomWS(c echo.Context, roomID openapi_types.UUID) error 
 	sess.Session.Unlock()
 
 	for _, pc := range leftRecipients {
-		_ = pc.WriteJSON(message{Type: "peer-left", ID: peerID})
+		if err := pc.WriteJSON(message{Type: "peer-left", ID: peerID}); err != nil {
+			c.Logger().Errorf("failed to notify peer-left (peerID=%s, roomID=%s): %v", peerID, roomID, err)
+		}
 	}
 
 	if empty {

@@ -92,14 +92,14 @@ func (s *Server) ConnectRoomWS(c echo.Context, roomID openapi_types.UUID) error 
 		return err
 	}
 	for _, pc := range recipients {
-		if err := pc.WriteJSON(message{Type: "new-peer", ID: peerID}); err != nil {
+		if err = pc.WriteJSON(message{Type: "new-peer", ID: peerID}); err != nil {
 			c.Logger().Errorf("failed to send 'new-peer' to peer: %v", err)
 		}
 	}
 
 	for {
 		var msg message
-		if err := ws.ReadJSON(&msg); err != nil {
+		if err = ws.ReadJSON(&msg); err != nil {
 			break
 		}
 		if msg.Type != "signal" || msg.To == "" {
@@ -112,12 +112,14 @@ func (s *Server) ConnectRoomWS(c echo.Context, roomID openapi_types.UUID) error 
 		sess.Session.Unlock()
 
 		if dest != nil {
-			_ = dest.WriteJSON(message{
+			if err = dest.WriteJSON(message{
 				Type:    "signal",
 				From:    peerID,
 				To:      msg.To,
 				Payload: msg.Payload,
-			})
+			}); err != nil {
+				c.Logger().Errorf("failed to forward signal: roomID=%s from=%s to=%s: %v", roomID, peerID, msg.To, err)
+			}
 		}
 	}
 
@@ -132,7 +134,7 @@ func (s *Server) ConnectRoomWS(c echo.Context, roomID openapi_types.UUID) error 
 	sess.Session.Unlock()
 
 	for _, pc := range leftRecipients {
-		if err := pc.WriteJSON(message{Type: "peer-left", ID: peerID}); err != nil {
+		if err = pc.WriteJSON(message{Type: "peer-left", ID: peerID}); err != nil {
 			c.Logger().Errorf("failed to notify peer-left (peerID=%s, roomID=%s): %v", peerID, roomID, err)
 		}
 	}

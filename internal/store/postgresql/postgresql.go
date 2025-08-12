@@ -11,6 +11,7 @@ import (
 
 type repository interface {
 	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
 type StorePG struct {
@@ -55,4 +56,17 @@ func (s *StorePG) DeleteRoomById(ctx context.Context, id string) error {
 	}
 
 	return nil
+}
+
+func (s *StorePG) RoomExists(ctx context.Context, id string) (bool, error) {
+	var exists bool
+	err := s.db.QueryRow(ctx,
+		`select exists (select * from rooms where id = @id)`,
+		pgx.NamedArgs{"id": id},
+	).Scan(&exists)
+	if err != nil {
+		return false, errors.Wrap(err, "check room exists")
+	}
+
+	return exists, nil
 }

@@ -12,6 +12,7 @@ import (
 type storePG interface {
 	CreateRoomById(ctx context.Context, id string) error
 	DeleteRoomById(ctx context.Context, id string) error
+	RoomExists(ctx context.Context, id string) (bool, error)
 }
 
 type Room struct {
@@ -44,4 +45,15 @@ func (r *Room) DeleteRoom(ctx context.Context, id openapi_types.UUID) error {
 	}
 
 	return nil
+}
+
+func (r *Room) RoomExistsUUID(ctx context.Context, roomID openapi_types.UUID) (bool, error) {
+	id := roomID.String()
+
+	exists, err := r.RoomExists(ctx, id)
+	if err != nil {
+		return false, errors.Wrap(err, "room id not found")
+	}
+
+	return exists, nil
 }

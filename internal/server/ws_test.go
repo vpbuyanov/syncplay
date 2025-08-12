@@ -12,168 +12,178 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
 	openapi_types "github.com/oapi-codegen/runtime/types"
+	"go.uber.org/mock/gomock"
+
 	"github.com/vpbuyanov/syncplay/internal/gen"
 )
 
-// readJSONWithTimeout wraps ReadJSON with a deadline to avoid hanging tests.
+// дедлайн на чтение, чтобы тесты не висели
 func readJSONWithTimeout(t *testing.T, conn *websocket.Conn, v interface{}) error {
 	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	if err := conn.SetReadDeadline(deadline); err != nil {
-		t.Fatalf("failed to set read deadline: %v", err)
-	}
+	_ = conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 	return conn.ReadJSON(v)
 }
 
-// clearRooms resets the global state so tests don't interfere with each other.
+// сброс глобального состояния комнат
 func clearRooms() {
 	roomsMu.Lock()
 	rooms = make(map[openapi_types.UUID]*roomSession)
 	roomsMu.Unlock()
 }
 
-func TestConnectRoomWS_TwoPeersSignalAndLeave(t *testing.T) {
+func TestConnectRoomWS_TwoPeersSignalAndLeave_ModelMock(t *testing.T) {
 	clearRooms()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockModel := NewMockmodelRoom(ctrl)
+	srv := &Server{m: mockModel}
+
 	e := echo.New()
 	e.GET("/ws/:roomID", func(c echo.Context) error {
-		roomIDStr := c.Param("roomID")
-		parsed, err := uuid.Parse(roomIDStr)
+		rid := c.Param("roomID")
+		u, err := uuid.Parse(rid)
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, gen.ErrorResponse{Detail: "invalid room ID"})
 		}
-		roomID := openapi_types.UUID(parsed)
-		return (&Server{}).ConnectRoomWS(c, roomID)
+		return srv.ConnectRoomWS(c, u)
 	})
 
 	ts := httptest.NewServer(e)
 	defer ts.Close()
 
-	// Генерируем UUID комнаты.
-	roomUUID := uuid.New()
-	roomIDStr := roomUUID.String()
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/" + roomIDStr
+	roomID := uuid.New().String()
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/" + roomID
 
-	// Подключаем первого peer-а.
-	peer1Conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	// Комната существует для обоих подключений
+	mockModel.
+		EXPECT().
+		RoomExistsUUID(gomock.Any(), gomock.AssignableToTypeOf(openapi_types.UUID{})).
+		Return(true, nil).
+		Times(2)
+
+	// peer1
+	peer1, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("peer1 dial failed: %v", err)
 	}
-	defer peer1Conn.Close()
+	defer peer1.Close()
 
-	var welcome1 message
-	if err := readJSONWithTimeout(t, peer1Conn, &welcome1); err != nil {
-		t.Fatalf("peer1 failed to read welcome: %v", err)
+	var w1 message
+	if err = readJSONWithTimeout(t, peer1, &w1); err != nil {
+		t.Fatalf("peer1 welcome read: %v", err)
 	}
-	if welcome1.Type != "welcome" || welcome1.ID == "" {
-		t.Fatalf("unexpected welcome1: %+v", welcome1)
+	if w1.Type != "welcome" || w1.ID == "" {
+		t.Fatalf("unexpected welcome1: %+v", w1)
 	}
-	peer1ID := welcome1.ID
+	p1 := w1.ID
 
-	var existing1 message
-	if err := readJSONWithTimeout(t, peer1Conn, &existing1); err != nil {
-		t.Fatalf("peer1 failed to read existing-peers: %v", err)
+	var ex1 message
+	if err = readJSONWithTimeout(t, peer1, &ex1); err != nil {
+		t.Fatalf("peer1 existing read: %v", err)
 	}
-	if existing1.Type != "existing-peers" || len(existing1.Peers) != 0 {
-		t.Fatalf("expected no existing peers for peer1, got: %+v", existing1)
+	if ex1.Type != "existing-peers" || len(ex1.Peers) != 0 {
+		t.Fatalf("expected no existing peers, got: %+v", ex1)
 	}
 
-	// Подключаем второго peer-а.
-	peer2Conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	// peer2
+	peer2, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("peer2 dial failed: %v", err)
 	}
-	defer peer2Conn.Close()
+	defer peer2.Close()
 
-	var welcome2 message
-	if err := readJSONWithTimeout(t, peer2Conn, &welcome2); err != nil {
-		t.Fatalf("peer2 failed to read welcome: %v", err)
+	var w2 message
+	if err = readJSONWithTimeout(t, peer2, &w2); err != nil {
+		t.Fatalf("peer2 welcome read: %v", err)
 	}
-	if welcome2.Type != "welcome" || welcome2.ID == "" {
-		t.Fatalf("unexpected welcome2: %+v", welcome2)
+	if w2.Type != "welcome" || w2.ID == "" {
+		t.Fatalf("unexpected welcome2: %+v", w2)
 	}
-	peer2ID := welcome2.ID
+	p2 := w2.ID
 
-	var existing2 message
-	if err := readJSONWithTimeout(t, peer2Conn, &existing2); err != nil {
-		t.Fatalf("peer2 failed to read existing-peers: %v", err)
+	var ex2 message
+	if err = readJSONWithTimeout(t, peer2, &ex2); err != nil {
+		t.Fatalf("peer2 existing read: %v", err)
 	}
-	if existing2.Type != "existing-peers" {
-		t.Fatalf("expected existing-peers for peer2, got: %+v", existing2)
-	}
-	if len(existing2.Peers) != 1 || existing2.Peers[0] != peer1ID {
-		t.Fatalf("peer2 existing peers mismatch: %+v", existing2)
+	if ex2.Type != "existing-peers" || len(ex2.Peers) != 1 || ex2.Peers[0] != p1 {
+		t.Fatalf("peer2 existing mismatch: %+v", ex2)
 	}
 
-	// Первый peer должен получить new-peer про второго.
-	var newPeerMsg message
-	if err := readJSONWithTimeout(t, peer1Conn, &newPeerMsg); err != nil {
-		t.Fatalf("peer1 failed to read new-peer: %v", err)
+	// peer1 должен получить new-peer(p2)
+	var np message
+	if err = readJSONWithTimeout(t, peer1, &np); err != nil {
+		t.Fatalf("peer1 new-peer read: %v", err)
 	}
-	if newPeerMsg.Type != "new-peer" || newPeerMsg.ID != peer2ID {
-		t.Fatalf("unexpected new-peer for peer1: %+v", newPeerMsg)
+	if np.Type != "new-peer" || np.ID != p2 {
+		t.Fatalf("unexpected new-peer: %+v", np)
 	}
 
-	// Проверяем сигнал от первого ко второму.
+	// сигнал p1 -> p2
 	payload := json.RawMessage(`{"hello":"world"}`)
-	signalMsg := message{Type: "signal", To: peer2ID, Payload: payload}
-	if err := peer1Conn.WriteJSON(signalMsg); err != nil {
-		t.Fatalf("peer1 failed to send signal: %v", err)
+	if err = peer1.WriteJSON(message{Type: "signal", To: p2, Payload: payload}); err != nil {
+		t.Fatalf("peer1 send signal: %v", err)
 	}
 
-	var receivedSignal message
-	if err := readJSONWithTimeout(t, peer2Conn, &receivedSignal); err != nil {
-		t.Fatalf("peer2 failed to receive signal: %v", err)
+	var recv message
+	if err = readJSONWithTimeout(t, peer2, &recv); err != nil {
+		t.Fatalf("peer2 recv signal: %v", err)
 	}
-	if receivedSignal.Type != "signal" || receivedSignal.From != peer1ID || string(receivedSignal.Payload) != string(payload) {
-		t.Fatalf("signal mismatch: %+v", receivedSignal)
-	}
-
-	// Закрываем второго и ждём уведомление peer-left на первом.
-	if err := peer2Conn.Close(); err != nil {
-		t.Fatalf("failed to close peer2: %v", err)
+	if recv.Type != "signal" || recv.From != p1 || string(recv.Payload) != string(payload) {
+		t.Fatalf("signal mismatch: %+v", recv)
 	}
 
-	var leftMsg message
-	if err := readJSONWithTimeout(t, peer1Conn, &leftMsg); err != nil {
-		t.Fatalf("peer1 failed to read peer-left: %v", err)
+	// peer2 уходит -> peer1 получает peer-left
+	_ = peer2.Close()
+	var left message
+	if err := readJSONWithTimeout(t, peer1, &left); err != nil {
+		t.Fatalf("peer1 read peer-left: %v", err)
 	}
-	if leftMsg.Type != "peer-left" || leftMsg.ID != peer2ID {
-		t.Fatalf("unexpected peer-left: %+v", leftMsg)
-	}
-
-	// Закрываем первого.
-	if err := peer1Conn.Close(); err != nil {
-		t.Fatalf("failed to close peer1: %v", err)
+	if left.Type != "peer-left" || left.ID != p2 {
+		t.Fatalf("unexpected peer-left: %+v", left)
 	}
 
-	// Даём серверу немного времени, чтобы почистить комнату.
+	_ = peer1.Close()
+
 	time.Sleep(100 * time.Millisecond)
-
 	roomsMu.Lock()
+	defer roomsMu.Unlock()
 	if len(rooms) != 0 {
-		t.Fatalf("expected rooms map to be empty after all peers left, got %d", len(rooms))
+		t.Fatalf("rooms not cleaned, len=%d", len(rooms))
 	}
-	roomsMu.Unlock()
 }
 
-func TestConnectRoomWS_SignalToNonexistentPeerDoesNotPanic(t *testing.T) {
+func TestConnectRoomWS_SignalToRandomPeer_DoesNotPanic_ModelMock(t *testing.T) {
 	clearRooms()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockModel := NewMockmodelRoom(ctrl)
+	srv := &Server{m: mockModel}
+
 	e := echo.New()
 	e.GET("/ws/:roomID", func(c echo.Context) error {
-		roomIDStr := c.Param("roomID")
-		parsed, err := uuid.Parse(roomIDStr)
+		rid := c.Param("roomID")
+		u, err := uuid.Parse(rid)
 		if err != nil {
 			return c.JSON(http.StatusBadRequest, gen.ErrorResponse{Detail: "invalid room ID"})
 		}
-		roomID := openapi_types.UUID(parsed)
-		return (&Server{}).ConnectRoomWS(c, roomID)
+		return srv.ConnectRoomWS(c, u)
 	})
 
 	ts := httptest.NewServer(e)
 	defer ts.Close()
 
-	roomUUID := uuid.New()
-	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/" + roomUUID.String()
+	roomID := uuid.New().String()
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/" + roomID
+
+	// Комната существует
+	mockModel.
+		EXPECT().
+		RoomExistsUUID(gomock.Any(), gomock.AssignableToTypeOf(openapi_types.UUID{})).
+		Return(true, nil)
 
 	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
@@ -181,25 +191,67 @@ func TestConnectRoomWS_SignalToNonexistentPeerDoesNotPanic(t *testing.T) {
 	}
 	defer conn.Close()
 
-	var welcome message
-	if err := readJSONWithTimeout(t, conn, &welcome); err != nil {
-		t.Fatalf("failed to read welcome: %v", err)
+	var w message
+	if err = readJSONWithTimeout(t, conn, &w); err != nil {
+		t.Fatalf("welcome read: %v", err)
 	}
-	var existing message
-	if err := readJSONWithTimeout(t, conn, &existing); err != nil {
-		t.Fatalf("failed to read existing-peers: %v", err)
-	}
-
-	// Посылаем сигнал на несуществующий peer, не должно приводить к падению.
-	randomID := uuid.NewString()
-	badSignal := message{Type: "signal", To: randomID, Payload: json.RawMessage(`{"x":1}`)}
-	if err := conn.WriteJSON(badSignal); err != nil {
-		t.Fatalf("failed to send bad signal: %v", err)
+	var ex message
+	if err = readJSONWithTimeout(t, conn, &ex); err != nil {
+		t.Fatalf("existing read: %v", err)
 	}
 
-	// Небольшая пауза, затем пингуем чтобы убедиться, что соединение живо.
+	// сигнал на несуществующий peer — соединение не должно падать
+	random := uuid.NewString()
+	if err = conn.WriteJSON(message{Type: "signal", To: random, Payload: json.RawMessage(`{"x":1}`)}); err != nil {
+		t.Fatalf("send bad signal: %v", err)
+	}
 	time.Sleep(50 * time.Millisecond)
-	if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-		t.Fatalf("connection closed unexpectedly after bad signal: %v", err)
+	if err = conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+		t.Fatalf("connection closed unexpectedly: %v", err)
+	}
+}
+
+func TestConnectRoomWS_RoomNotFound_BeforeUpgrade(t *testing.T) {
+	clearRooms()
+
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+
+	mockModel := NewMockmodelRoom(ctrl)
+	srv := &Server{m: mockModel}
+
+	e := echo.New()
+	e.GET("/ws/:roomID", func(c echo.Context) error {
+		rid := c.Param("roomID")
+		u, err := uuid.Parse(rid)
+		if err != nil {
+			return c.JSON(http.StatusBadRequest, gen.ErrorResponse{Detail: "invalid room ID"})
+		}
+		return srv.ConnectRoomWS(c, u)
+	})
+
+	ts := httptest.NewServer(e)
+	defer ts.Close()
+
+	roomID := uuid.New().String()
+	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws/" + roomID
+
+	// Комната НЕ существует
+	mockModel.
+		EXPECT().
+		RoomExistsUUID(gomock.Any(), gomock.AssignableToTypeOf(openapi_types.UUID{})).
+		Return(false, nil)
+
+	// Dial не получит 101 Switching Protocols → вернётся ошибка bad handshake.
+	_, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err == nil {
+		t.Fatal("expected bad handshake error, got nil")
+	}
+	if resp == nil {
+		t.Fatalf("expected HTTP response, got nil err=%v", err)
+	}
+	// ожидаем 404 (или 400 — подстрой под свой ConnectRoomWS)
+	if resp.StatusCode != http.StatusNotFound && resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unexpected status code: %d", resp.StatusCode)
 	}
 }

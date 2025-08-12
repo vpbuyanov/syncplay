@@ -195,7 +195,5 @@ cython_debug/
 
 bin/
 
-**/merged.json
-
 config.yml
 .postgres.env

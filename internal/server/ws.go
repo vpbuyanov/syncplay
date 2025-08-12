@@ -36,7 +36,28 @@ type message struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
+// maybeDeleteRoom безопасно удаляет комнату из глобальной карты,
+// делая двойную проверку под roomsMu -> sess.Session.
+func maybeDeleteRoom(roomID openapi_types.UUID, sess *roomSession) {
+	roomsMu.Lock()
+	defer roomsMu.Unlock()
+
+	// Комната могла быть уже удалена/заменена
+	cur := rooms[roomID]
+	if cur != sess {
+		return
+	}
+
+	sess.Session.Lock()
+	defer sess.Session.Unlock()
+
+	if len(sess.Peers) == 0 {
+		delete(rooms, roomID)
+	}
+}
+
 func (s *Server) ConnectRoomWS(c echo.Context, roomID openapi_types.UUID) error {
+	// Проверяем, что комната существует в БД до апгрейда
 	exists, err := s.m.RoomExistsUUID(c.Request().Context(), roomID)
 	if err != nil {
 		c.Logger().Errorf("RoomExistsUUID err: %v", err)
@@ -46,7 +67,7 @@ func (s *Server) ConnectRoomWS(c echo.Context, roomID openapi_types.UUID) error 
 		return c.JSON(http.StatusNotFound, gen.ErrorResponse{Detail: "room not found"})
 	}
 
-	// Upgrade
+	// Upgrade до WebSocket
 	ws, err := upgrader.Upgrade(c.Response().Writer, c.Request(), nil)
 	if err != nil {
 		return c.JSON(http.StatusInternalServerError, gen.ErrorResponse{Detail: "ws upgrade failed"})
@@ -64,27 +85,28 @@ func (s *Server) ConnectRoomWS(c echo.Context, roomID openapi_types.UUID) error 
 	}
 	roomsMu.Unlock()
 
-	var existing []string
-	var recipients []*websocket.Conn
-
+	// Снимаем слепки существующих и получателей "new-peer"
 	sess.Session.Lock()
-	existing = make([]string, 0, len(sess.Peers))
+
+	existing := make([]string, 0, len(sess.Peers))
 	for id := range sess.Peers {
 		existing = append(existing, id)
 	}
 
-	// добавляем себя
+	// Добавляем себя
 	sess.Peers[peerID] = ws
 
-	// получатели "new-peer" (все, кроме нас)
-	recipients = make([]*websocket.Conn, 0, len(sess.Peers)-1)
+	// Получатели "new-peer" (все, кроме нас)
+	recipients := make([]*websocket.Conn, 0, len(sess.Peers)-1)
 	for id, pc := range sess.Peers {
 		if id != peerID {
 			recipients = append(recipients, pc)
 		}
 	}
+
 	sess.Session.Unlock()
 
+	// Приветствие нового
 	if err = ws.WriteJSON(message{Type: "welcome", ID: peerID}); err != nil {
 		return err
 	}
@@ -93,10 +115,11 @@ func (s *Server) ConnectRoomWS(c echo.Context, roomID openapi_types.UUID) error 
 	}
 	for _, pc := range recipients {
 		if err = pc.WriteJSON(message{Type: "new-peer", ID: peerID}); err != nil {
-			c.Logger().Errorf("failed to send 'new-peer' to peer: %v", err)
+			c.Logger().Errorf("failed to send 'new-peer' (roomID=%s, newPeer=%s): %v", roomID, peerID, err)
 		}
 	}
 
+	// Основной цикл сигналинга
 	for {
 		var msg message
 		if err = ws.ReadJSON(&msg); err != nil {
@@ -106,11 +129,13 @@ func (s *Server) ConnectRoomWS(c echo.Context, roomID openapi_types.UUID) error 
 			continue
 		}
 
+		// Берём ссылку на получателя под локом сессии
 		var dest *websocket.Conn
 		sess.Session.Lock()
 		dest = sess.Peers[msg.To]
 		sess.Session.Unlock()
 
+		// Пишем уже без лока (ошибки логируем)
 		if dest != nil {
 			if err = dest.WriteJSON(message{
 				Type:    "signal",
@@ -123,27 +148,27 @@ func (s *Server) ConnectRoomWS(c echo.Context, roomID openapi_types.UUID) error 
 		}
 	}
 
+	// Клиент уходит: удаляем из Peers и шлём 'peer-left' остальным
 	var leftRecipients []*websocket.Conn
 	sess.Session.Lock()
+
 	delete(sess.Peers, peerID)
+
 	leftRecipients = make([]*websocket.Conn, 0, len(sess.Peers))
 	for _, pc := range sess.Peers {
 		leftRecipients = append(leftRecipients, pc)
 	}
-	empty := len(sess.Peers) == 0
+
 	sess.Session.Unlock()
 
 	for _, pc := range leftRecipients {
 		if err = pc.WriteJSON(message{Type: "peer-left", ID: peerID}); err != nil {
-			c.Logger().Errorf("failed to notify peer-left (peerID=%s, roomID=%s): %v", peerID, roomID, err)
+			c.Logger().Errorf("failed to notify 'peer-left' (roomID=%s, leftPeer=%s): %v", roomID, peerID, err)
 		}
 	}
 
-	if empty {
-		roomsMu.Lock()
-		delete(rooms, roomID)
-		roomsMu.Unlock()
-	}
+	// Безопасная попытка удалить комнату, если она опустела
+	maybeDeleteRoom(roomID, sess)
 
 	return nil
 }

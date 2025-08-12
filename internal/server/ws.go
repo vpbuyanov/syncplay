@@ -144,6 +144,7 @@ func (s *Server) ConnectRoomWS(c echo.Context, roomID openapi_types.UUID) error 
 				Payload: msg.Payload,
 			}); err != nil {
 				c.Logger().Errorf("failed to forward signal: roomID=%s from=%s to=%s: %v", roomID, peerID, msg.To, err)
+				break
 			}
 		}
 	}

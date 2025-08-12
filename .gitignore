@@ -197,3 +197,5 @@ bin/
 
 config.yml
 .postgres.env
+
+swagger-codegen-cli.jar
